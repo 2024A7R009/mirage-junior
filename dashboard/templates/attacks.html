@@ -3,40 +3,53 @@
 {% block header_title %}Full Attack Log{% endblock %}
 {% block content %}
 <div class="card full-width">
-    <div class="table-controls">
-        <input type="text" id="search-log" placeholder="Search IP or Action...">
-        <button class="btn btn-primary">Export CSV</button>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; gap: 12px; flex-wrap: wrap;">
+        <form method="GET" action="/attacks" class="search-bar" style="margin-bottom: 0; flex: 1; min-width: 250px;">
+            <input type="text" name="search" placeholder="Search by IP, protocol, event type..." value="{{ search or '' }}">
+            <button type="submit" class="btn btn-primary">Search</button>
+        </form>
+        <a href="/api/export/csv" class="btn btn-primary"><i class="fa-solid fa-download"></i> Export CSV</a>
     </div>
     <table class="data-table">
         <thead>
             <tr>
                 <th>Time</th>
                 <th>IP</th>
-                <th>Country</th>
                 <th>Protocol</th>
                 <th>Event Type</th>
+                <th>Details</th>
                 <th>Threat Pts</th>
                 <th>MITRE ID</th>
-                <th>Score</th>
             </tr>
         </thead>
         <tbody>
+            {% if events %}
+            {% for e in events %}
             <tr>
-                <td>2026-10-03 11:03:52</td>
-                <td><a href="/attacker/45.33.32.156">45.33.32.156</a></td>
-                <td>🇷🇺 RU</td>
-                <td>SSH</td>
-                <td>shell_command</td>
-                <td>+15</td>
-                <td><span class="tag">T1059</span></td>
-                <td><span class="badge badge-critical">94</span></td>
+                <td>{{ e.timestamp }}</td>
+                <td><a href="/attacker/{{ e.ip_address }}">{{ e.ip_address }}</a></td>
+                <td>{{ e.protocol }}</td>
+                <td>{{ e.event_type }}</td>
+                <td>{{ e.details[:80] if e.details else '' }}{% if e.details and e.details|length > 80 %}...{% endif %}</td>
+                <td>+{{ e.threat_pts }}</td>
+                <td>{% if e.mitre_id %}<span class="tag">{{ e.mitre_id }}</span>{% else %}-{% endif %}</td>
             </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No events found</td>
+            </tr>
+            {% endif %}
         </tbody>
     </table>
     <div class="pagination">
-        <button disabled>&laquo; Prev</button>
-        <span>Page 1 of 42</span>
-        <button>Next &raquo;</button>
+        {% if page > 1 %}
+        <a href="/attacks?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn">← Previous</a>
+        {% endif %}
+        <span style="display: inline-flex; align-items: center; padding: 0 10px;">Page {{ page }} of {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <a href="/attacks?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}" class="btn">Next →</a>
+        {% endif %}
     </div>
 </div>
 {% endblock %}
