@@ -61,38 +61,60 @@ def overview():
 
 @dashboard_bp.route('/attacks')
 def attacks():
-    """Full attack log page with pagination."""
+    """Full attack log page with pagination, search, and protocol filtering."""
     db = get_db()
     page = request.args.get('page', 1, type=int)
     per_page = 10
     offset = (page - 1) * per_page
-    search = request.args.get('search', '')
+    search = request.args.get('search', '').strip()
+    protocol = request.args.get('protocol', '').strip().upper()
+
+    query_parts = []
+    params = []
 
     if search:
-        events = [dict(r) for r in db.execute(
-            """SELECT e.*, a.country, a.classification FROM events e 
-               LEFT JOIN attackers a ON e.ip_address = a.ip_address 
-               WHERE e.ip_address LIKE ? OR e.protocol LIKE ? OR e.event_type LIKE ?
-               ORDER BY e.timestamp DESC LIMIT ? OFFSET ?""",
-            (f'%{search}%', f'%{search}%', f'%{search}%', per_page, offset)
-        ).fetchall()]
-        total = db.execute(
-            "SELECT COUNT(*) FROM events WHERE ip_address LIKE ? OR protocol LIKE ? OR event_type LIKE ?",
-            (f'%{search}%', f'%{search}%', f'%{search}%')
-        ).fetchone()[0]
-    else:
-        events = [dict(r) for r in db.execute(
-            """SELECT e.*, a.country, a.classification FROM events e 
-               LEFT JOIN attackers a ON e.ip_address = a.ip_address 
-               ORDER BY e.timestamp DESC LIMIT ? OFFSET ?""",
-            (per_page, offset)
-        ).fetchall()]
-        total = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        query_parts.append("(e.ip_address LIKE ? OR e.event_type LIKE ? OR e.mitre_id LIKE ? OR a.country LIKE ? OR e.details LIKE ?)")
+        wildcard = f'%{search}%'
+        params.extend([wildcard, wildcard, wildcard, wildcard, wildcard])
+
+    if protocol and protocol != 'ALL':
+        query_parts.append("e.protocol = ?")
+        params.append(protocol)
+
+    where_clause = f"WHERE {' AND '.join(query_parts)}" if query_parts else ""
+
+    # Count matching
+    count_sql = f"""SELECT COUNT(*) FROM events e 
+                   LEFT JOIN attackers a ON e.ip_address = a.ip_address 
+                   {where_clause}"""
+    total = db.execute(count_sql, params).fetchone()[0]
+
+    # Fetch 10 records per page
+    fetch_sql = f"""SELECT e.*, a.country, a.city, a.classification, a.threat_score FROM events e 
+                   LEFT JOIN attackers a ON e.ip_address = a.ip_address 
+                   {where_clause}
+                   ORDER BY e.timestamp DESC LIMIT ? OFFSET ?"""
+    events = [dict(r) for r in db.execute(fetch_sql, params + [per_page, offset]).fetchall()]
 
     total_pages = max(1, (total + per_page - 1) // per_page)
+
+    # Protocol breakdown counts for filter chips
+    counts_raw = db.execute("SELECT protocol, COUNT(*) as c FROM events GROUP BY protocol").fetchall()
+    protocol_counts = {r['protocol']: r['c'] for r in counts_raw if r['protocol']}
+    total_all = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+
     db.close()
-    return render_template('attacks.html', events=events, page=page,
-                           total_pages=total_pages, search=search, total=total)
+    return render_template('attacks.html',
+                           events=events,
+                           page=page,
+                           per_page=per_page,
+                           total_pages=total_pages,
+                           search=search,
+                           protocol=protocol,
+                           total=total,
+                           total_all=total_all,
+                           protocol_counts=protocol_counts)
+
 
 
 @dashboard_bp.route('/attacker/<ip>')
